@@ -64,20 +64,6 @@ const MarkdownEditor = () => {
     setSections(updatedSections)
   }
 
-  const handleSectionImageChange = e => {
-    const updatedSections = [...sections]
-    if (!updatedSections[currentSectionIndex]) {
-      updatedSections[currentSectionIndex] = {
-        text: "",
-        image: "",
-        imageHeight: 300,
-        imageWidth: 300,
-      }
-    }
-    updatedSections[currentSectionIndex].image = e.target.value
-    setSections(updatedSections)
-  }
-
   const createNewSection = () => {
     if (currentSectionIndex < 5) {
       setCurrentSectionIndex(currentSectionIndex + 1)
@@ -100,21 +86,25 @@ const MarkdownEditor = () => {
         const img = new Image()
         img.onload = () => {
           const newSections = [...sections]
+          const aspectRatio = img.width / img.height // Calcul du ratio d'aspect
+
           if (!newSections[currentSectionIndex]) {
             newSections[currentSectionIndex] = {
               text: "",
               image: "",
               imageHeight: img.height,
               imageWidth: img.width,
+              aspectRatio: aspectRatio, // Stocker le ratio
             }
           } else {
             newSections[currentSectionIndex].imageHeight = img.height
             newSections[currentSectionIndex].imageWidth = img.width
+            newSections[currentSectionIndex].aspectRatio = aspectRatio // Mettre à jour le ratio
           }
           newSections[currentSectionIndex].image = reader.result
           setSections(newSections)
         }
-        img.src = reader.result // Charger l'image en mémoire pour obtenir ses dimensions
+        img.src = reader.result
       }
       reader.readAsDataURL(file)
     }
@@ -128,41 +118,91 @@ const MarkdownEditor = () => {
         image: "",
         imageHeight: 300,
         imageWidth: 300,
+        aspectRatio: 1, // Valeur par défaut
       }
     }
-    updatedSections[currentSectionIndex][dimension] = e.target.value
+
+    if (dimension === "imageHeight") {
+      const newHeight = e.target.value
+      updatedSections[currentSectionIndex].imageHeight = newHeight
+      updatedSections[currentSectionIndex].imageWidth =
+        newHeight * updatedSections[currentSectionIndex].aspectRatio
+    } else if (dimension === "imageWidth") {
+      const newWidth = e.target.value
+      updatedSections[currentSectionIndex].imageWidth = newWidth
+      updatedSections[currentSectionIndex].imageHeight =
+        newWidth / updatedSections[currentSectionIndex].aspectRatio
+    }
+
+    setSections(updatedSections)
+  }
+
+  const handleSectionImageChange = e => {
+    const updatedSections = [...sections]
+    if (!updatedSections[currentSectionIndex]) {
+      updatedSections[currentSectionIndex] = {
+        text: "",
+        image: "",
+        imageHeight: 300,
+        imageWidth: 300,
+        imagePosition: "none", // Ajout du champ pour la position de l'image
+      }
+    }
+    updatedSections[currentSectionIndex].image = e.target.value
+    setSections(updatedSections)
+  }
+
+  const positionImage = position => {
+    const updatedSections = [...sections]
+    if (!updatedSections[currentSectionIndex]) {
+      updatedSections[currentSectionIndex] = {
+        text: "",
+        image: "",
+        imageHeight: 300,
+        imageWidth: 300,
+        imagePosition: "top", // Valeur par défaut
+      }
+    }
+    if (["top", "top-left", "top-right"].includes(position)) {
+      updatedSections[currentSectionIndex].imagePosition = position
+    }
     setSections(updatedSections)
   }
 
   // Génération Markdown avec dimensions d'image
   const generateMarkdown = () => {
-    const metadataString = `
---- 
-title: ${metadata.title}
-author: ${metadata.author}
-date: ${metadata.date}
-category: "${metadata.category}"
-slug: "${metadata.slug}"
-image: "${metadata.image}"
-cardImage: "${metadata.cardImage}"
----
+    const metadataString = ` 
+  --- 
+  title: ${metadata.title}
+  author: ${metadata.author}
+  date: ${metadata.date}
+  category: "${metadata.category}"
+  slug: "${metadata.slug}"
+  image: "${metadata.image}"
+  cardImage: "${metadata.cardImage}"
+  ---
+  
+  ${content}
+  
+  ${sections
+    .map((section, index) => {
+      const resizedImage = section.image
+        ? `${section.image}?resize=500x500` // Applique une taille à l'image
+        : "" // Si aucune image, garde vide
 
-${content}
-
-${sections
-  .map(
-    (section, index) => `### Section ${index + 1}
-
-![Image de la section](${section.image})
-
-${section.text}`
-  )
-  .join("\n")}`
+      return `### Section ${index + 1}
+  
+  ![Image de la section](${resizedImage})
+  
+  ${section.text}`
+    })
+    .join("\n")}`
     return metadataString
   }
 
-  // Add a custom renderer for ReactMarkdown
-  const MarkdownPreview = ({ markdown }) => {
+  // Ajouter un rendu personnalisé pour ReactMarkdown.
+  // Ajouter un rendu personnalisé pour ReactMarkdown.
+  const MarkdownPreview = ({ markdown, sections }) => {
     return (
       <ReactMarkdown
         remarkPlugins={[remarkDirective]}
@@ -172,29 +212,56 @@ ${section.text}`
             const { src, alt } = props
             const section = sections.find(
               section => section.image && section.image.includes(src)
-            ) // Assurez-vous que l'image soit comparée correctement
-
-            // Affichez les informations de débogage
-            console.log("Section trouvée:", section)
-            console.log(
-              "Dimensions de l'image:",
-              section?.imageWidth,
-              section?.imageHeight
             )
 
-            const width = section?.imageWidth || 300
-            const height = section?.imageHeight || 300
+            let imageStyle = {
+              maxWidth: "100%",
+              width: `${section?.imageWidth || 300}px`,
+              height: `${section?.imageHeight || 300}px`,
+            }
+
+            // Appliquer la position de l'image (gauche, droite, haut-gauche, bas-droit, etc.)
+            switch (section?.imagePosition) {
+              case "top":
+                imageStyle = {
+                  ...imageStyle,
+                  display: "block",
+                  margin: "0 auto 10px", // Centré en haut
+                }
+                break
+              case "top-left":
+                imageStyle = {
+                  ...imageStyle,
+                  float: "left",
+                  marginRight: "10px", // Texte à droite de l'image
+                  marginBottom: "10px",
+                }
+                break
+              case "top-right":
+                imageStyle = {
+                  ...imageStyle,
+                  float: "right",
+                  marginLeft: "10px", // Texte à gauche de l'image
+                  marginBottom: "10px",
+                }
+                break
+              default:
+                imageStyle = { ...imageStyle, clear: "both" }
+                break
+            }
 
             return (
-              <div
-                style={{
-                  backgroundColor: "#ccc",
-                  width: `${width}px`,
-                  height: `${height}px`,
-                  display: "inline-block",
-                  border: "1px solid #ddd",
-                }}
-              />
+              <div style={{ marginBottom: "10px", clear: "both" }}>
+                {section ? (
+                  <img
+                    src={section.image}
+                    alt={alt || "Image"}
+                    style={imageStyle}
+                  />
+                ) : (
+                  <p>Image non trouvée</p>
+                )}
+              </div>
             )
           },
         }}
@@ -309,6 +376,50 @@ ${section.text}`
           onChange={e => handleSectionImageDimensionChange(e, "imageWidth")}
           style={{ display: "block", width: "100%", marginBottom: "10px" }}
         />
+        <div
+          style={{
+            margin: "10px",
+            display: "flex",
+            gap: "10px",
+          }}
+        >
+          <button
+            onClick={() => positionImage("top")}
+            style={{
+              padding: "10px",
+              backgroundColor: "#4CAF50",
+              color: "white",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Haut
+          </button>
+          <button
+            onClick={() => positionImage("top-left")}
+            style={{
+              padding: "10px",
+              backgroundColor: "#2196F3",
+              color: "white",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Haut/Gauche
+          </button>
+          <button
+            onClick={() => positionImage("top-right")}
+            style={{
+              padding: "10px",
+              backgroundColor: "#FFC107",
+              color: "white",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Haut/Droit
+          </button>
+        </div>
 
         {/* ReactQuill Editor */}
         <ReactQuill
@@ -316,30 +427,6 @@ ${section.text}`
           onChange={handleSectionChange}
           style={{ height: "200px", marginBottom: "20px" }}
         />
-
-        {/* Aperçu */}
-        <div
-          style={{
-            margin: "20px 0",
-            border: "1px solid #ddd",
-            padding: "10px",
-          }}
-        >
-          <h4>Aperçu de l'image</h4>
-          {sections[currentSectionIndex]?.image && (
-            <img
-              src={sections[currentSectionIndex]?.image}
-              alt="Aperçu"
-              style={{
-                maxWidth: "100%",
-                width: `${sections[currentSectionIndex]?.imageWidth || 300}px`,
-                height: `${
-                  sections[currentSectionIndex]?.imageHeight || 300
-                }px`,
-              }}
-            />
-          )}
-        </div>
 
         {/* Buttons */}
         <button
