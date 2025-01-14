@@ -21,6 +21,7 @@ const MarkdownEditor = () => {
   const [content, setContent] = useState("")
   const [sections, setSections] = useState([])
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
+  const [isAspectRatioLocked, setIsAspectRatioLocked] = useState(true) // Nouvelle variable d'état
 
   // Fonction pour générer un slug à partir du titre
   const generateSlugFromTitle = title => {
@@ -110,6 +111,10 @@ const MarkdownEditor = () => {
     }
   }
 
+  const handleAspectRatioLockChange = () => {
+    setIsAspectRatioLocked(!isAspectRatioLocked)
+  }
+
   const handleSectionImageDimensionChange = (e, dimension) => {
     const updatedSections = [...sections]
     if (!updatedSections[currentSectionIndex]) {
@@ -122,16 +127,19 @@ const MarkdownEditor = () => {
       }
     }
 
+    const newValue = parseInt(e.target.value, 10)
     if (dimension === "imageHeight") {
-      const newHeight = e.target.value
-      updatedSections[currentSectionIndex].imageHeight = newHeight
-      updatedSections[currentSectionIndex].imageWidth =
-        newHeight * updatedSections[currentSectionIndex].aspectRatio
+      updatedSections[currentSectionIndex].imageHeight = newValue
+      if (isAspectRatioLocked) {
+        updatedSections[currentSectionIndex].imageWidth =
+          newValue * updatedSections[currentSectionIndex].aspectRatio
+      }
     } else if (dimension === "imageWidth") {
-      const newWidth = e.target.value
-      updatedSections[currentSectionIndex].imageWidth = newWidth
-      updatedSections[currentSectionIndex].imageHeight =
-        newWidth / updatedSections[currentSectionIndex].aspectRatio
+      updatedSections[currentSectionIndex].imageWidth = newValue
+      if (isAspectRatioLocked) {
+        updatedSections[currentSectionIndex].imageHeight =
+          newValue / updatedSections[currentSectionIndex].aspectRatio
+      }
     }
 
     setSections(updatedSections)
@@ -376,6 +384,22 @@ const MarkdownEditor = () => {
           onChange={e => handleSectionImageDimensionChange(e, "imageWidth")}
           style={{ display: "block", width: "100%", marginBottom: "10px" }}
         />
+        {/* Bouton pour maintenir les proportions */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            marginBottom: "10px",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={isAspectRatioLocked}
+            onChange={handleAspectRatioLockChange}
+            style={{ marginRight: "10px" }}
+          />
+          <label>Maintenir les proportions (hauteur/largeur)</label>
+        </div>
         <div
           style={{
             margin: "10px",
