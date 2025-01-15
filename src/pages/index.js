@@ -1,11 +1,9 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import ReactQuill from "react-quill"
 import "react-quill/dist/quill.snow.css"
-import ReactMarkdown from "react-markdown"
-import rehypeRaw from "rehype-raw"
-import remarkDirective from "remark-directive"
 
 const MarkdownEditor = () => {
+  // Déclaration de l'état initial pour les métadonnées du fichier
   const [metadata, setMetadata] = useState({
     title: "",
     author: "",
@@ -16,30 +14,41 @@ const MarkdownEditor = () => {
     cardImage: "",
     imageTitre: "",
     cardImageTitre: "",
+    resume: "",
+    sections: [], // Les sections sont désormais intégrées ici
   })
 
+  // Déclaration de l'état initial pour le contenu
   const [content, setContent] = useState("")
-  const [sections, setSections] = useState([])
-  const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
-  const [isAspectRatioLocked, setIsAspectRatioLocked] = useState(true) // Nouvelle variable d'état
+  const [sections, setSections] = useState([]) // Sections du contenu
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0) // Index de la section actuelle
+  const [isAspectRatioLocked, setIsAspectRatioLocked] = useState(true) // Etat pour verrouiller le ratio d'aspect
+  const [imagesData, setImagesData] = useState([]) // Données des images téléchargées
 
   // Fonction pour générer un slug à partir du titre
-  const generateSlugFromTitle = title => {
+  const generateSlugFromTitle = useCallback(title => {
     return title
       .toLowerCase()
-      .replace(/[^\w\s-]/g, "") // Supprimer les caractères non alphanumériques
-      .replace(/\s+/g, "-") // Remplacer les espaces par des tirets
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
       .trim()
-  }
+  }, [])
 
-  // Mettre à jour le slug chaque fois que le titre change
+  // Utilisation de useEffect pour mettre à jour les sections dans les métadonnées lorsque les sections changent
   useEffect(() => {
     setMetadata(prevMetadata => ({
       ...prevMetadata,
-      slug: generateSlugFromTitle(metadata.title),
+      sections: sections.map(section => ({
+        text: section.text,
+        image: section.image,
+        imageHeight: section.imageHeight,
+        imageWidth: section.imageWidth,
+        imagePosition: section.imagePosition,
+      })),
     }))
-  }, [metadata.title]) // Exécuter uniquement lorsque le titre change
+  }, [sections]) // Cette fonction s'exécute chaque fois que les sections changent
 
+  // Fonction pour gérer le changement des métadonnées
   const handleMetadataChange = e => {
     const { name, value } = e.target
     setMetadata(prevMetadata => ({
@@ -47,96 +56,162 @@ const MarkdownEditor = () => {
       [name]: value,
     }))
   }
+
+  // Fonction pour gérer les changements dans le contenu de l'éditeur
   const handleContentChange = value => {
-    setContent(value)
+    setMetadata(prevMetadata => ({
+      ...prevMetadata,
+      resume: value, // Mettre à jour uniquement le champ `resume`
+    }))
   }
 
+  // Fonction pour gérer l'ajout/modification d'une section
   const handleSectionChange = value => {
     const updatedSections = [...sections]
     if (!updatedSections[currentSectionIndex]) {
       updatedSections[currentSectionIndex] = {
         text: "",
         image: "",
-        imageHeight: 300,
-        imageWidth: 300,
+        imageHeight: null, // Pas de dimension par défaut
+        imageWidth: null, // Pas de dimension par défaut
       }
     }
     updatedSections[currentSectionIndex].text = value
     setSections(updatedSections)
   }
 
-  const createNewSection = () => {
-    if (currentSectionIndex < 5) {
-      setCurrentSectionIndex(currentSectionIndex + 1)
-    } else {
-      alert("Vous ne pouvez pas ajouter plus de 6 sections.")
-    }
-  }
-
-  const goBackToPreviousSection = () => {
-    if (currentSectionIndex > 0) {
-      setCurrentSectionIndex(currentSectionIndex - 1)
-    }
-  }
-
+  // Fonction pour télécharger l'image et ajuster les dimensions
   const handleImageUpload = event => {
     const file = event.target.files[0]
     if (file) {
       const reader = new FileReader()
+
       reader.onload = () => {
         const img = new Image()
         img.onload = () => {
           const newSections = [...sections]
-          const aspectRatio = img.width / img.height // Calcul du ratio d'aspect
+          const aspectRatio = img.width / img.height
 
+          // Mise à jour ou création de la section actuelle
           if (!newSections[currentSectionIndex]) {
             newSections[currentSectionIndex] = {
               text: "",
-              image: "",
+              image: reader.result, // Base64 de l'image
+              fileName: file.name, // Nom du fichier
+              fileType: file.type, // Type MIME
+              fileSize: file.size, // Taille du fichier
               imageHeight: img.height,
               imageWidth: img.width,
-              aspectRatio: aspectRatio, // Stocker le ratio
+              aspectRatio: aspectRatio, // Ratio d'aspect
+              lastModified: new Date(file.lastModified), // Date de modification
             }
           } else {
-            newSections[currentSectionIndex].imageHeight = img.height
-            newSections[currentSectionIndex].imageWidth = img.width
-            newSections[currentSectionIndex].aspectRatio = aspectRatio // Mettre à jour le ratio
+            const section = newSections[currentSectionIndex]
+            section.image = reader.result // Base64
+            section.fileName = file.name
+            section.fileType = file.type
+            section.fileSize = file.size
+            section.imageHeight = img.height
+            section.imageWidth = img.width
+            section.aspectRatio = aspectRatio
+            section.lastModified = new Date(file.lastModified)
           }
-          newSections[currentSectionIndex].image = reader.result
+
+          // Met à jour les sections avec la nouvelle image
           setSections(newSections)
+
+          // Préparation des données de l'image pour le backend
+          const imageData = {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            lastModified: new Date(file.lastModified),
+          }
+
+          // Mise à jour des données dans imagesData en fonction de l'index actuel
+          setImagesData(prevData => {
+            const updatedData = [...prevData]
+            updatedData[currentSectionIndex] = imageData
+            return updatedData
+          })
         }
+
         img.src = reader.result
       }
-      reader.readAsDataURL(file)
+
+      reader.readAsDataURL(file) // Convertir l'image en Base64
+    }
+  }
+  const handleImageTitleUpload = event => {
+    const file = event.target.files[0]
+
+    if (file) {
+      const reader = new FileReader()
+
+      reader.onload = () => {
+        const img = new Image()
+
+        img.onload = () => {
+          // Collect the image's metadata
+          const imageData = {
+            fileName: file.name, // File name
+            fileType: file.type, // MIME type
+            fileSize: file.size, // File size in bytes
+            content: reader.result, // Base64 encoded image content
+            dimensions: {
+              // Image dimensions
+              width: img.width,
+              height: img.height,
+              aspectRatio: img.width / img.height,
+            },
+            lastModified: new Date(file.lastModified), // Last modified date
+          }
+
+          // Update the state with the collected image data for backend
+          setImagesData(prevData => {
+            const newData = [...prevData]
+            newData[0] = imageData // Insert the image data at the first position
+            return newData
+          })
+        }
+
+        // Trigger image loading to extract dimensions
+        img.src = reader.result
+      }
+
+      reader.readAsDataURL(file) // Convert the file to Base64
     }
   }
 
-  const handleAspectRatioLockChange = () => {
-    setIsAspectRatioLocked(!isAspectRatioLocked)
-  }
-
+  // Mise à jour des dimensions de l'image tout en tenant compte du verrouillage du ratio
   const handleSectionImageDimensionChange = (e, dimension) => {
     const updatedSections = [...sections]
     if (!updatedSections[currentSectionIndex]) {
       updatedSections[currentSectionIndex] = {
         text: "",
         image: "",
-        imageHeight: 300,
-        imageWidth: 300,
-        aspectRatio: 1, // Valeur par défaut
+        imageHeight: null,
+        imageWidth: null,
+        aspectRatio: 1,
       }
     }
 
     const newValue = parseInt(e.target.value, 10)
     if (dimension === "imageHeight") {
       updatedSections[currentSectionIndex].imageHeight = newValue
-      if (isAspectRatioLocked) {
+      if (
+        isAspectRatioLocked &&
+        updatedSections[currentSectionIndex].aspectRatio
+      ) {
         updatedSections[currentSectionIndex].imageWidth =
           newValue * updatedSections[currentSectionIndex].aspectRatio
       }
     } else if (dimension === "imageWidth") {
       updatedSections[currentSectionIndex].imageWidth = newValue
-      if (isAspectRatioLocked) {
+      if (
+        isAspectRatioLocked &&
+        updatedSections[currentSectionIndex].aspectRatio
+      ) {
         updatedSections[currentSectionIndex].imageHeight =
           newValue / updatedSections[currentSectionIndex].aspectRatio
       }
@@ -145,21 +220,68 @@ const MarkdownEditor = () => {
     setSections(updatedSections)
   }
 
-  const handleSectionImageChange = e => {
-    const updatedSections = [...sections]
-    if (!updatedSections[currentSectionIndex]) {
-      updatedSections[currentSectionIndex] = {
-        text: "",
-        image: "",
-        imageHeight: 300,
-        imageWidth: 300,
-        imagePosition: "none", // Ajout du champ pour la position de l'image
-      }
-    }
-    updatedSections[currentSectionIndex].image = e.target.value
-    setSections(updatedSections)
+  // Fonction pour générer le Markdown avec des sections et des images optionnelles
+  const generateMarkdown = () => {
+    const metadataString = ` 
+    --- 
+  title: ${metadata.title}
+  author: ${metadata.author}
+  date: ${metadata.date}
+  category: "${metadata.category}"
+  resume: "${metadata.resume}"
+  slug: "${metadata.slug}"
+  image: "${metadata.image}"   
+  cardImage: "${metadata.cardImage}"
+  sections:
+${metadata.sections
+  .map(
+    (section, index) => `    - text: "${section.text || ""}"
+      image: "${section.image || ""}"   
+      imageHeight: ${section.imageHeight || "null"} 
+      imageWidth: ${section.imageWidth || "null"}
+      imagePosition: "${section.imagePosition || "top"}"`
+  )
+  .join("\n")}
+  ---`
+
+    const sectionsContent = metadata.sections
+      .map((section, index) => {
+        const imagePath = section.image
+          ? `${metadata.title}/${section.image}`
+          : ""
+        return `### Section ${index + 1}
+  
+  ![Image de la section](${imagePath})
+  
+  ${section.text}`
+      })
+      .join("\n")
+
+    return `${metadataString}\n\n${content}\n\n${sectionsContent}`
   }
 
+  // Fonction pour ajouter une nouvelle section, avec un maximum de 4 sections
+  const createNewSection = () => {
+    if (currentSectionIndex < 3) {
+      setCurrentSectionIndex(currentSectionIndex + 1)
+    } else {
+      alert("Vous ne pouvez pas ajouter plus de 4 sections.")
+    }
+  }
+
+  // Fonction pour revenir à la section précédente
+  const goBackToPreviousSection = () => {
+    if (currentSectionIndex > 0) {
+      setCurrentSectionIndex(currentSectionIndex - 1)
+    }
+  }
+
+  // Fonction pour activer ou désactiver le verrouillage du ratio d'aspect
+  const handleAspectRatioLockChange = () => {
+    setIsAspectRatioLocked(!isAspectRatioLocked)
+  }
+
+  // Fonction pour positionner l'image dans la section selon la position spécifiée
   const positionImage = position => {
     const updatedSections = [...sections]
     if (!updatedSections[currentSectionIndex]) {
@@ -171,114 +293,23 @@ const MarkdownEditor = () => {
         imagePosition: "top", // Valeur par défaut
       }
     }
-    if (["top", "top-left", "top-right"].includes(position)) {
+
+    // Vérification que la position soit valide et affectation de la position
+    if (
+      [
+        "top",
+        "top-left",
+        "top-right",
+        "center",
+        "bottom-left",
+        "bottom-right",
+      ].includes(position)
+    ) {
       updatedSections[currentSectionIndex].imagePosition = position
     }
     setSections(updatedSections)
   }
-
-  // Génération Markdown avec dimensions d'image
-  const generateMarkdown = () => {
-    const metadataString = ` 
-  --- 
-  title: ${metadata.title}
-  author: ${metadata.author}
-  date: ${metadata.date}
-  category: "${metadata.category}"
-  slug: "${metadata.slug}"
-  image: "${metadata.image}"
-  cardImage: "${metadata.cardImage}"
-  ---
-  
-  ${content}
-  
-  ${sections
-    .map((section, index) => {
-      const resizedImage = section.image
-        ? `${section.image}?resize=500x500` // Applique une taille à l'image
-        : "" // Si aucune image, garde vide
-
-      return `### Section ${index + 1}
-  
-  ![Image de la section](${resizedImage})
-  
-  ${section.text}`
-    })
-    .join("\n")}`
-    return metadataString
-  }
-
-  // Ajouter un rendu personnalisé pour ReactMarkdown.
-  // Ajouter un rendu personnalisé pour ReactMarkdown.
-  const MarkdownPreview = ({ markdown, sections }) => {
-    return (
-      <ReactMarkdown
-        remarkPlugins={[remarkDirective]}
-        rehypePlugins={[rehypeRaw]}
-        components={{
-          img: ({ node, ...props }) => {
-            const { src, alt } = props
-            const section = sections.find(
-              section => section.image && section.image.includes(src)
-            )
-
-            let imageStyle = {
-              maxWidth: "100%",
-              width: `${section?.imageWidth || 300}px`,
-              height: `${section?.imageHeight || 300}px`,
-            }
-
-            // Appliquer la position de l'image (gauche, droite, haut-gauche, bas-droit, etc.)
-            switch (section?.imagePosition) {
-              case "top":
-                imageStyle = {
-                  ...imageStyle,
-                  display: "block",
-                  margin: "0 auto 10px", // Centré en haut
-                }
-                break
-              case "top-left":
-                imageStyle = {
-                  ...imageStyle,
-                  float: "left",
-                  marginRight: "10px", // Texte à droite de l'image
-                  marginBottom: "10px",
-                }
-                break
-              case "top-right":
-                imageStyle = {
-                  ...imageStyle,
-                  float: "right",
-                  marginLeft: "10px", // Texte à gauche de l'image
-                  marginBottom: "10px",
-                }
-                break
-              default:
-                imageStyle = { ...imageStyle, clear: "both" }
-                break
-            }
-
-            return (
-              <div style={{ marginBottom: "10px", clear: "both" }}>
-                {section ? (
-                  <img
-                    src={section.image}
-                    alt={alt || "Image"}
-                    style={imageStyle}
-                  />
-                ) : (
-                  <p>Image non trouvée</p>
-                )}
-              </div>
-            )
-          },
-        }}
-      >
-        {markdown}
-      </ReactMarkdown>
-    )
-  }
-
+  // Fonction pour sauvegarder l'article et afficher son contenu
   const saveArticle = () => {
     alert("Article sauvegardé avec succès !")
     console.log(generateMarkdown())
@@ -340,10 +371,9 @@ const MarkdownEditor = () => {
           style={{ display: "block", width: "100%", marginBottom: "10px" }}
         />
         <input
-          type="url"
-          placeholder="URL de l'image de la titre"
-          value={metadata.imageTitre || ""}
-          onChange={handleSectionImageChange}
+          type="file"
+          accept="image/*"
+          onChange={handleImageTitleUpload}
           style={{ display: "block", width: "100%", marginBottom: "10px" }}
         />
       </div>
@@ -351,8 +381,8 @@ const MarkdownEditor = () => {
       {/* Editeur Markdown pour le contenu principal */}
       <ReactQuill
         theme="snow"
-        value={content}
-        onChange={handleContentChange}
+        value={metadata.resume} // Utiliser metadata.resume ici pour lier la valeur
+        onChange={handleContentChange} // Appeler la fonction handleContentChange pour mettre à jour `resume`
         style={{ height: "200px", marginBottom: "20px" }}
       />
 
@@ -451,33 +481,36 @@ const MarkdownEditor = () => {
           onChange={handleSectionChange}
           style={{ height: "200px", marginBottom: "20px" }}
         />
-
+        <br />
+        <br />
         {/* Buttons */}
-        <button
-          onClick={createNewSection}
-          style={{
-            padding: "10px",
-            backgroundColor: "#4CAF50",
-            color: "white",
-            marginTop: "10px",
-          }}
-          disabled={currentSectionIndex >= 5}
-        >
-          Créer une nouvelle section
-        </button>
-        <button
-          onClick={goBackToPreviousSection}
-          style={{
-            padding: "10px",
-            backgroundColor: "#f44336",
-            color: "white",
-            marginTop: "10px",
-            marginLeft: "10px",
-          }}
-          disabled={currentSectionIndex <= 0}
-        >
-          Retour à la section précédente
-        </button>
+        <div>
+          <button
+            onClick={createNewSection}
+            style={{
+              padding: "10px",
+              backgroundColor: "#4CAF50",
+              color: "white",
+              marginTop: "10px",
+            }}
+            disabled={currentSectionIndex >= 3}
+          >
+            Créer une nouvelle section
+          </button>
+          <button
+            onClick={goBackToPreviousSection}
+            style={{
+              padding: "10px",
+              backgroundColor: "#f44336",
+              color: "white",
+              marginTop: "10px",
+              marginLeft: "10px",
+            }}
+            disabled={currentSectionIndex <= 0}
+          >
+            Retour à la section précédente
+          </button>
+        </div>
       </div>
 
       {/* Aperçu Markdown */}
@@ -486,10 +519,78 @@ const MarkdownEditor = () => {
           marginBottom: "20px",
           border: "1px solid #ddd",
           padding: "10px",
+          textAlign: "center", // Centre le contenu
         }}
       >
-        <h2>Aperçu</h2>
-        <MarkdownPreview markdown={generateMarkdown()} sections={sections} />
+        {/* Centrer les metadata (titre, auteur, date, catégorie) */}
+        <div style={{ marginBottom: "20px" }}>
+          <h1
+            style={{
+              color: "rgb(245, 109, 68)",
+              fontWeight: "bold",
+              fontSize: "45px",
+            }}
+          >
+            {metadata.title}
+          </h1>
+          <div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <p style={{ fontSize: "18px", margin: "5px" }}>{metadata.date}</p>
+              <p style={{ margin: "0 5px" }}>par</p>
+              <p style={{ fontSize: "18px", margin: "5px" }}>
+                {metadata.author}
+              </p>
+            </div>
+
+            <p style={{ fontSize: "18px", margin: "5px 0" }}>
+              {metadata.category}
+            </p>
+            <p style={{ fontSize: "18px", margin: "5px 0" }}>
+              {metadata.resume}
+            </p>
+
+            <div className="sections-container" style={{ borderTop: 8 }}>
+              {metadata.sections.map((section, index) => (
+                <div key={index} className="section">
+                  <p>{section.text}</p>
+                  {section.image && (
+                    <img
+                      src={section.image}
+                      alt={`Image de la section ${index + 1}`}
+                      width={section.imageWidth}
+                      height={section.imageHeight}
+                      style={{
+                        // Ajouter la logique pour la position de l'image
+                        objectFit: "cover", // Pour s'assurer que l'image occupe bien l'espace
+                        position: "relative",
+                        left: section.imagePosition.includes("left")
+                          ? 0
+                          : "auto",
+                        right: section.imagePosition.includes("right")
+                          ? 0
+                          : "auto",
+                        top: section.imagePosition === "top" ? 0 : "auto",
+                        bottom: section.imagePosition === "bottom" ? 0 : "auto",
+                        margin:
+                          section.imagePosition === "center"
+                            ? "0 auto"
+                            : "auto", // Centrer l'image
+                      }}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* <MarkdownPreview markdown={generateMarkdown()} sections={sections} /> */}
       </div>
 
       {/* Markdown brut */}
